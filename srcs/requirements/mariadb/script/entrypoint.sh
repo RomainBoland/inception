@@ -23,4 +23,4 @@ if [ ! -f /var/lib/mysql/.initialized ]; then
 	touch /var/lib/mysql/.initialized
 fi
 
-exec mariadbd --user=mysql
+exec mariadbd --user=mysql --bind-address=0.0.0.0

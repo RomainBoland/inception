@@ -4,7 +4,7 @@ WORDPRESS_PASSWORD=$(cat /run/secrets/db_password)
 WP_ADMIN_PASSWORD=$(cat /run/secrets/wp_admin_password)
 
 if [ ! -f /var/www/html/wp-config.php ]; then
-    wp config create \
+    wp config create --skip-check \
         --dbname="${DB_NAME}" \
         --dbuser="${DB_ADMIN}" \
         --dbpass="${WORDPRESS_PASSWORD}" \
