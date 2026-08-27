@@ -28,6 +28,21 @@ services:
     volumes:
       - wp_data:/var/www/html
 
+  nginx:
+    build: requirements/NGINX
+    container_name: inception_nginx
+    env_file:
+      - .env
+    ports:
+      - "443:443"
+    networks:
+      - inception
+    depends_on:
+      - wordpress
+    restart: always
+    volumes:
+      - wp_data:/var/www/html
+
 secrets:
   db_password:
     file: ../secrets/db_password.txt

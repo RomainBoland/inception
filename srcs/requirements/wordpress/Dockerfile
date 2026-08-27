@@ -2,6 +2,8 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y php-fpm php-mysqli wget tar mariadb-client
 
+RUN sed -i "s|^listen = .*|listen = 9000|" /etc/php/8.2/fpm/pool.d/www.conf
+
 RUN wget -O /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
     chmod +x /usr/local/bin/wp
 
