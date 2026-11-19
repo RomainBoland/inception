@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - srcs/requirements/mariadb/Dockerfile
+          - srcs/requirements/wordpress/Dockerfile
+          - srcs/requirements/NGINX/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint ${{ matrix.dockerfile }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          failure-threshold: error   # passe à "warning" quand tout est propre
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck (entrypoints)
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: srcs
+          severity: error
+
+  stack-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOMAIN: rboland.42.fr
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare config (secrets are generated, nothing real is stored)
+        run: |
+          mkdir -p secrets "$HOME/data/db_data" "$HOME/data/wp_data"
+          for s in db_password db_admin_password wp_admin_password; do
+            openssl rand -hex 16 > "secrets/$s.txt"
+          done
+          cat > srcs/.env <<EOF
+          DB_ADMIN=dbadmin
+          DB_NAME=wordpress
+          WP_ADMIN_USER=boss
+          WP_ADMIN_EMAIL=ci@example.com
+          WP_TITLE=Inception CI
+          DOMAIN_NAME=${DOMAIN}
+          EOF
+          echo "127.0.0.1 ${DOMAIN}" | sudo tee -a /etc/hosts
+
+      - name: Validate compose file
+        run: docker compose -f srcs/docker-compose.yml config --quiet
+
+      - name: Build and start the stack
+        run: make
+
+      - name: Wait for HTTPS to answer
+        run: |
+          for i in $(seq 1 40); do
+            if curl -ksf "https://${DOMAIN}" -o /dev/null; then echo "Up after ~$((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "Stack did not become ready"; exit 1
+
+      - name: Smoke tests
+        run: |
+          set -e
+          echo "-> 3 containers running"
+          test "$(docker ps --filter name=inception_ --format '{{.Names}}' | wc -l)" -eq 3
+
+          echo "-> WordPress is served over HTTPS"
+          curl -ks "https://${DOMAIN}" | grep -q "wp-content"
+
+          echo "-> TLS 1.2 and 1.3 accepted"
+          curl -ks --tlsv1.2 --tls-max 1.2 "https://${DOMAIN}" -o /dev/null
+          curl -ks --tlsv1.3 --tls-max 1.3 "https://${DOMAIN}" -o /dev/null
+
+          echo "-> Port 80 is closed"
+          if curl -s --max-time 5 "http://${DOMAIN}" -o /dev/null; then
+            echo "HTTP should not be exposed"; exit 1
+          fi
+
+          echo "-> No secret leaked in container environment"
+          for f in secrets/*.txt; do
+            for c in $(docker ps --filter name=inception_ --format '{{.Names}}'); do
+              if docker inspect --format '{{json .Config.Env}}' "$c" | grep -qF "$(cat "$f")"; then
+                echo "Secret from $f found in env of $c"; exit 1
+              fi
+            done
+          done
+
+      - name: Restart test (idempotent first boot)
+        run: |
+          make down
+          make up
+          for i in $(seq 1 24); do
+            if curl -ksf "https://${DOMAIN}" -o /dev/null; then echo "Back up"; exit 0; fi
+            sleep 5
+          done
+          echo "Stack did not come back after restart"; exit 1
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f srcs/docker-compose.yml logs --no-color
