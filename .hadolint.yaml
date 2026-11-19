@@ -1,0 +1,2 @@
+ignored:
+  - DL3008   # Debian package versions change with security updates; the base image (debian:bookworm-slim) is pinned instead
