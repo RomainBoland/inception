@@ -1,10 +1,15 @@
 COMPOSE = docker compose -f srcs/docker-compose.yml
+VOLUMES = srcs_db_data srcs_wp_data
 
-all:
+all: prepare
 	$(COMPOSE) up --build -d
 
-up:
+up: prepare
 	$(COMPOSE) up -d
+
+prepare:
+	mkdir -p ~/data/db_data ~/data/wp_data
+	-docker volume rm $(VOLUMES) 2>/dev/null
 
 down:
 	$(COMPOSE) down
@@ -21,4 +26,4 @@ purge: fclean
 
 re: fclean all
 
-.PHONY: all up down clean fclean purge re
+.PHONY: all up down clean fclean purge re prepare
